@@ -104,8 +104,10 @@ impl KvStore {
     pub async fn get(&self, name: &str) -> Result<Option<KvValue>, KvError> {
         let name = JsValue::from(name);
         let promise: Promise = self.get_function.call1(&self.this, &name)?.into();
-        let inner = InnerFuture::new(JsFuture::from(promise))
-            .await
+        let inner = InnerFuture::new(JsFuture::from(promise));
+        unsafe {
+        let ub = Pin::new_unchecked(inner).await;
+        let a = ub
             .map_err(KvError::from)?
             .as_string()
             .map(KvValue);
@@ -113,7 +115,8 @@ impl KvStore {
         //unsafe {
         //Ok(Pin::new_unchecked(box_future).await)
         //}
-        Ok(inner)
+        Ok(a)
+        }
     }
 
     /// Fetches the value and associated metadata from the kv store by name.
