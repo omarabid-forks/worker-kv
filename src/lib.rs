@@ -26,6 +26,29 @@ use serde_json::Value;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
+use std::pin::Pin;
+use std::future::Future;
+
+struct InnerFuture {
+    fut: Pin<Box<dyn Future<Output = Result<JsValue, JsValue>> + 'static>>,
+}
+
+impl InnerFuture {
+    fn new<F: Future<Output = Result<JsValue, JsValue>> + 'static>(fut: F) -> Pin<Box<Self>> {
+        Box::pin(Self { fut: Box::pin(fut) })
+    }
+}
+
+impl Future for InnerFuture {
+    type Output = Result<JsValue, JsValue>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        unsafe { Pin::new_unchecked(&mut self.fut).poll(cx) }
+    }
+}
+
+unsafe impl Send for InnerFuture {}
+
 /// A binding to a Cloudflare KvStore.
 #[derive(Clone)]
 pub struct KvStore {
@@ -81,11 +104,15 @@ impl KvStore {
     pub async fn get(&self, name: &str) -> Result<Option<KvValue>, KvError> {
         let name = JsValue::from(name);
         let promise: Promise = self.get_function.call1(&self.this, &name)?.into();
-        let inner = JsFuture::from(promise)
+        let inner = InnerFuture::new(JsFuture::from(promise))
             .await
             .map_err(KvError::from)?
             .as_string()
             .map(KvValue);
+        //let box_future = InnerFuture::new(inner);
+        //unsafe {
+        //Ok(Pin::new_unchecked(box_future).await)
+        //}
         Ok(inner)
     }
 
